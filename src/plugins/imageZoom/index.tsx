@@ -55,6 +55,12 @@ export const settings = definePluginSettings({
         default: false,
     },
 
+    fullZoom: {
+        type: OptionType.BOOLEAN,
+        description: "Scroll zooms the whole image instead of using a lens",
+        default: false,
+    },
+
     zoom: {
         description: "Zoom of the lens",
         type: OptionType.SLIDER,
@@ -86,10 +92,18 @@ const imageContextMenuPatch: NavContextMenuPatchCallback = (children, props) => 
     // emojis in user statuses
     if (props.target?.classList?.contains("emoji")) return;
 
-    const { square, nearestNeighbour } = settings.use(["square", "nearestNeighbour"]);
+    const { square, nearestNeighbour, fullZoom } = settings.use(["square", "nearestNeighbour", "fullZoom"]);
 
     children.push(
         <Menu.MenuGroup id="image-zoom">
+            <Menu.MenuCheckboxItem
+                id="vc-zoom-image"
+                label="Full Zoom"
+                checked={fullZoom}
+                action={() => {
+                    settings.store.fullZoom = !fullZoom;
+                }}
+            />
             <Menu.MenuCheckboxItem
                 id="vc-square"
                 label="Square Lens"
@@ -155,7 +169,7 @@ const imageContextMenuPatch: NavContextMenuPatchCallback = (children, props) => 
 
 export default definePlugin({
     name: "ImageZoom",
-    description: "Lets you zoom in to images and gifs. Use scroll wheel to zoom in and shift + scroll wheel to increase lens radius / size",
+    description: "Lets you zoom in to images and gifs. Use scroll wheel to zoom and shift + scroll wheel to increase lens radius / size",
     tags: ["Media", "Utility"],
     authors: [Devs.Aria],
     searchTerms: ["ImageUtilities"],
@@ -247,6 +261,12 @@ export default definePlugin({
     },
 
     updateMagnifier(instance) {
+        // only remount if the image actually changed; remounting on every
+        // componentDidUpdate nukes the drag/zoom state and causes jitter while
+        // panning or zooming a stationary image
+        const prevSrc = this.currentMagnifierElement?.props.instance?.props?.src;
+        if (prevSrc != null && prevSrc === instance.props.src) return;
+
         this.unMountMagnifier();
         this.renderMagnifier(instance);
     },

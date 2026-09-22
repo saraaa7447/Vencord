@@ -1,0 +1,316 @@
+/* Vencord ImageEditor plugin styles */
+
+.vc-img-editor-content {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    min-height: 300px;
+}
+
+.vc-img-editor-toolbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
+.vc-img-editor-tool-group {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    flex-wrap: wrap;
+}
+
+.vc-img-editor-tool-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 5px 12px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    background: transparent;
+    color: var(--text-normal);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.vc-img-editor-tool-btn:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.vc-img-editor-tool-active {
+    background-color: var(--background-modifier-active);
+    border-color: var(--brand-500);
+    color: var(--text-normal);
+}
+
+.vc-img-editor-icon-btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 6px !important;
+    min-width: 30px;
+}
+
+.vc-img-editor-stage-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 240px;
+    padding: 16px;
+    border-radius: 8px;
+    background-color: var(--background-secondary);
+    overflow: hidden;
+}
+
+.vc-img-editor-stage {
+    position: relative;
+    flex: none;
+    box-shadow: 0 0 0 1px var(--background-modifier-active), 0 6px 20px rgb(0 0 0 / 30%);
+}
+
+.vc-img-editor-canvas {
+    display: block;
+    cursor: crosshair;
+}
+
+.vc-img-editor-loading {
+    color: var(--text-muted);
+    font-size: 14px;
+    padding: 40px;
+    text-align: center;
+}
+
+.vc-img-editor-text-layer {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.vc-img-editor-text-item {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    white-space: nowrap;
+    cursor: move;
+    user-select: none;
+    pointer-events: none;
+    color: #fff;
+    text-shadow: 0 1px 3px rgb(0 0 0 / 80%), 0 0 6px rgb(0 0 0 / 50%);
+    line-height: 1.2;
+}
+
+.vc-img-editor-text-item-draggable {
+    pointer-events: auto;
+}
+
+.vc-img-editor-text-item:hover {
+    outline: 1px dashed rgb(255 255 255 / 50%);
+    outline-offset: 2px;
+}
+
+.vc-img-editor-selected {
+    outline: 1px dashed #5865f2;
+    outline-offset: 2px;
+}
+
+.vc-img-editor-crop-layer {
+    position: absolute;
+    inset: 0;
+    cursor: crosshair;
+    touch-action: none;
+}
+
+.vc-img-editor-crop-rect {
+    position: absolute;
+    border: 1px solid rgb(255 255 255 / 95%);
+    box-shadow: 0 0 0 9999px rgb(0 0 0 / 60%);
+    transform: translate(0, 0);
+}
+
+.vc-img-editor-crop-rect::before,
+.vc-img-editor-crop-rect::after {
+    content: "";
+    position: absolute;
+    background: rgb(255 255 255 / 35%);
+}
+
+.vc-img-editor-crop-rect::before {
+    inset: 0 33.33%;
+    width: 1px;
+}
+
+.vc-img-editor-crop-rect::after {
+    inset: 33.33% 0;
+    height: 1px;
+}
+
+.vc-img-editor-crop-handle {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background: #fff;
+    border: 1px solid rgb(0 0 0 / 60%);
+    box-shadow: 0 0 2px rgb(0 0 0 / 50%);
+    z-index: 1;
+}
+
+.vc-img-editor-crop-handle-nw {
+    top: -5px;
+    left: -5px;
+    cursor: nwse-resize;
+}
+
+.vc-img-editor-crop-handle-n {
+    top: -5px;
+    left: calc(50% - 5px);
+    cursor: ns-resize;
+}
+
+.vc-img-editor-crop-handle-ne {
+    top: -5px;
+    right: -5px;
+    cursor: nesw-resize;
+}
+
+.vc-img-editor-crop-handle-e {
+    right: -5px;
+    top: calc(50% - 5px);
+    cursor: ew-resize;
+}
+
+.vc-img-editor-crop-handle-se {
+    bottom: -5px;
+    right: -5px;
+    cursor: nwse-resize;
+}
+
+.vc-img-editor-crop-handle-s {
+    bottom: -5px;
+    left: calc(50% - 5px);
+    cursor: ns-resize;
+}
+
+.vc-img-editor-crop-handle-sw {
+    bottom: -5px;
+    left: -5px;
+    cursor: nesw-resize;
+}
+
+.vc-img-editor-crop-handle-w {
+    left: -5px;
+    top: calc(50% - 5px);
+    cursor: ew-resize;
+}
+
+.vc-img-editor-controls {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    min-height: 30px;
+}
+
+.vc-img-editor-hint {
+    color: var(--text-muted);
+    font-size: 12px;
+}
+
+.vc-img-editor-control {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.vc-img-editor-control-label {
+    font-size: 12px;
+    color: var(--text-muted);
+}
+
+.vc-img-editor-control-value {
+    font-size: 12px;
+    color: var(--text-normal);
+    min-width: 20px;
+    text-align: right;
+}
+
+.vc-img-editor-color {
+    width: 32px;
+    height: 26px;
+    padding: 0;
+    border: 1px solid var(--background-modifier-active);
+    border-radius: 4px;
+    background: none;
+    cursor: pointer;
+}
+
+.vc-img-editor-range {
+    width: 130px;
+    accent-color: var(--brand-500);
+}
+
+.vc-img-editor-select {
+    background-color: var(--background-secondary);
+    color: var(--text-normal);
+    border: 1px solid var(--background-modifier-active);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 13px;
+}
+
+.vc-img-editor-style-btn {
+    width: 28px;
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid var(--background-modifier-active);
+    background: transparent;
+    color: var(--text-normal);
+    border-radius: 4px;
+    cursor: pointer;
+}
+
+.vc-img-editor-style-btn:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.vc-img-editor-style-active {
+    background-color: var(--brand-500);
+    border-color: var(--brand-500);
+    color: #fff;
+}
+
+.vc-img-editor-text-input {
+    flex: 1;
+    min-width: 180px;
+    background-color: var(--background-secondary);
+    color: var(--text-normal);
+    border: 1px solid var(--background-modifier-active);
+    border-radius: 4px;
+    padding: 4px 8px;
+    font-size: 13px;
+}
+
+.vc-img-editor-ratio-btn {
+    padding: 4px 10px;
+    border-radius: 999px;
+    border: 1px solid var(--background-modifier-active);
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 12px;
+    cursor: pointer;
+}
+
+.vc-img-editor-ratio-btn:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.vc-img-editor-ratio-active {
+    background-color: var(--brand-500);
+    border-color: var(--brand-500);
+    color: #fff;
+}

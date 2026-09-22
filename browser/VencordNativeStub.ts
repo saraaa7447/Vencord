@@ -133,6 +133,10 @@ window.VencordNative = {
         openFolder: async () => Promise.reject("settings:openFolder is not supported on web"),
     },
 
+    touchBar: {
+        onAction: NOOP,
+    },
+
     pluginHelpers: {} as any,
     csp: {} as any,
 };

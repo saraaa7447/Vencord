@@ -100,5 +100,11 @@ export default {
             invoke<CspRequestResult>(IpcEvents.CSP_REQUEST_ADD_OVERRIDE, url, directives, callerName),
     },
 
+    touchBar: {
+        onAction(cb: (action: any) => void) {
+            ipcRenderer.on(IpcEvents.TOUCHBAR_ACTION, (_, action) => cb(action));
+        }
+    },
+
     pluginHelpers: PluginHelpers
 };
