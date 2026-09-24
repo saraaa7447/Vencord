@@ -4,7 +4,7 @@
     display: flex;
     flex-direction: column;
     gap: 10px;
-    min-height: 300px;
+    min-height: 420px;
 }
 
 .vc-img-editor-toolbar {
@@ -59,7 +59,7 @@
     display: flex;
     align-items: center;
     justify-content: center;
-    min-height: 240px;
+    min-height: 340px;
     padding: 16px;
     border-radius: 8px;
     background-color: var(--background-secondary);
@@ -313,4 +313,84 @@
     background-color: var(--brand-500);
     border-color: var(--brand-500);
     color: #fff;
+}
+
+/* --- Sticker tool --- */
+
+.vc-img-editor-sticker-layer {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
+
+.vc-img-editor-sticker-item {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    cursor: move;
+    user-select: none;
+    -webkit-user-drag: none;
+    pointer-events: none;
+    object-fit: contain;
+}
+
+.vc-img-editor-sticker-item-draggable {
+    pointer-events: auto;
+}
+
+.vc-img-editor-sticker-item:hover {
+    outline: 1px dashed rgb(255 255 255 / 60%);
+    outline-offset: 2px;
+}
+
+.vc-img-editor-sticker-item-selected {
+    outline: 2px solid #5865f2;
+    outline-offset: 2px;
+}
+
+.vc-img-editor-sticker-picker {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    padding: 8px;
+    border-radius: 8px;
+    border: 1px solid var(--background-modifier-active);
+    background-color: var(--background-secondary);
+}
+
+.vc-img-editor-sticker-picker-scroll {
+    display: flex;
+    gap: 4px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+}
+
+.vc-img-editor-sticker-cell {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    flex: none;
+    width: 40px;
+    height: 40px;
+    padding: 2px;
+    border-radius: 6px;
+    border: 1px solid transparent;
+    background: transparent;
+    cursor: pointer;
+}
+
+.vc-img-editor-sticker-cell:hover {
+    background-color: var(--background-modifier-hover);
+}
+
+.vc-img-editor-sticker-cell img {
+    width: 32px;
+    height: 32px;
+    object-fit: contain;
+    pointer-events: none;
+}
+
+.vc-img-editor-sticker-cell-selected {
+    background-color: var(--background-modifier-active);
+    border-color: var(--brand-500);
 }

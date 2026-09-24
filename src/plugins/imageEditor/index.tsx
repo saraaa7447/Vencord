@@ -12,7 +12,7 @@ import { Devs } from "@utils/constants";
 import { classNameFactory } from "@utils/css";
 import definePlugin, { IconComponent, IconProps, OptionType } from "@utils/types";
 import type { CloudUpload, RenderModalProps } from "@vencord/discord-types";
-import { ChannelStore, DraftType, FluxDispatcher, Menu, Modal, openModal, SelectedChannelStore, showToast, Toasts, UploadAttachmentStore, UploadHandler, useEffect, useRef, useState } from "@webpack/common";
+import { ChannelStore, DraftType, EmojiStore, FluxDispatcher, IconUtils, Menu, Modal, openModal, SelectedChannelStore, showToast, Toasts, UploadAttachmentStore, UploadHandler, useEffect, useMemo, useRef, useState } from "@webpack/common";
 import type { PointerEvent as ReactPointerEvent } from "react";
 
 import managedStyle from "./style.css?managed";
@@ -44,10 +44,35 @@ interface TextItem {
     italic: boolean;
 }
 
+/** An emoji or image the user can click to place a copy onto the photo */
+interface StickerSource {
+    id: string;
+    name: string;
+    /** URL used both for the picker thumbnail and the placed sticker */
+    src: string;
+    /** Width / height, used to preserve aspect ratio when placing */
+    aspect: number;
+    animated?: boolean;
+}
+
+/** A placed emoji/image overlay on the photo */
+interface StickerItem {
+    id: string;
+    src: string;
+    name: string;
+    /** Center position in source-image coordinates */
+    x: number;
+    y: number;
+    /** Size in source-image coordinates */
+    w: number;
+    h: number;
+}
+
 interface EditorSnapshot {
     crop: Rect | null;
     strokes: Stroke[];
     texts: TextItem[];
+    stickers: StickerItem[];
 }
 
 interface EditorProps {
@@ -63,7 +88,7 @@ interface EditorProps {
 // Constants
 // ---------------------------------------------------------------------------
 
-type Tool = "crop" | "text" | "scribble";
+type Tool = "crop" | "text" | "scribble" | "sticker";
 type CropRatio = "free" | "1:1" | "4:3" | "3:4" | "16:9" | "9:16";
 
 const CROP_RATIOS: Record<CropRatio, number | null> = {
@@ -84,6 +109,74 @@ const FONTS = [
 ] as const;
 
 const EDITABLE_IMAGE_RE = /\.(png|jpe?g|webp|avif|bmp)$/i;
+
+const TWEMOJI_BASE = "https://cdn.jsdelivr.net/gh/jdecked/twemoji@15.1.0/assets/72x72";
+
+/**
+ * Builds a URL to the Twemoji PNG for a unicode emoji.
+ * Twemoji keeps the U+FE0F variation selector only inside ZWJ sequences
+ * (e.g. 🏳️🌈 -> 1f3f3-fe0f-200d-1f308.png) and strips it otherwise
+ * (e.g. ❤️ -> 2764.png).
+ */
+function twemojiUrl(emoji: string): string {
+    const hasZwj = emoji.includes("\u200d");
+    const codepoints = Array.from(emoji)
+        .filter(ch => hasZwj || ch !== "\ufe0f")
+        .map(ch => ch.codePointAt(0)!.toString(16))
+        .join("-");
+    return `${TWEMOJI_BASE}/${codepoints}.png`;
+}
+
+const COMMON_EMOJIS = [
+    "😀", "😃", "😄", "😁", "😆", "😅", "😂", "🤣", "😊", "😇", "🙂", "🙃", "😉", "😌", "😍", "🥰",
+    "😘", "😋", "😛", "😝", "😜", "🤪", "🤨", "🧐", "🤓", "😎", "🥸", "🤩", "🥳", "😏", "😒", "😞",
+    "😔", "😟", "😕", "🙁", "☹️", "😣", "😖", "😫", "😩", "🥺", "😢", "😭", "😤", "😠", "😡", "🤬",
+    "🤯", "😳", "🥵", "🥶", "😱", "😨", "😰", "😥", "😓", "🤗", "🤔", "🫡", "🤭", "🤫", "🤥", "😶",
+    "😐", "😑", "😬", "🙄", "😯", "😦", "😧", "😮", "😲", "🥱", "😴", "🤤", "😪", "😵", "🤐", "🥴",
+    "🤢", "🤮", "🤧", "😷", "🤒", "🤕", "🤑", "🤠", "😈", "👿", "🤡", "💩", "👻", "💀", "☠️", "👽",
+    "👾", "🤖", "🎃", "😺", "😸", "😹", "😻", "😼", "😽", "🙀", "😿", "😾",
+    "👋", "🤚", "🖐️", "✋", "🖖", "👌", "🤌", "🤏", "✌️", "🤞", "🫰", "🤟", "🤘", "🤙", "👈", "👉",
+    "👆", "🖕", "👇", "☝️", "👍", "👎", "✊", "👊", "🤛", "🤜", "👏", "🙌", "🫶", "👐", "🤲", "🤝",
+    "🙏", "💪", "✍️", "💅", "🤳", "👂", "👃", "🧠", "🦷", "👅", "👄", "👀", "👁️", "👓", "🕶️", "🥽",
+    "🦺", "👔", "👕", "👖", "🧣", "🧤", "🧥", "🧦", "👗", "👘", "👙", "👚", "👛", "👜", "🎒", "💼",
+    "👝", "🧳", "👡", "👠", "👟", "🥾", "🥿", "👞", "👢", "👑", "🎩", "🎓", "🧢", "👒", "💄", "💍",
+    "🐶", "🐱", "🐭", "🐹", "🐰", "🦊", "🐻", "🐼", "🐨", "🐯", "🦁", "🐮", "🐷", "🐸", "🐵", "🐔",
+    "🐧", "🐦", "🐤", "🦆", "🦅", "🦉", "🦇", "🐺", "🐗", "🐴", "🦄", "🐝", "🦋", "🐌", "🐞", "🐜",
+    "🕷️", "🐢", "🐍", "🦎", "🦖", "🦕", "🐙", "🦑", "🦀", "🐡", "🐠", "🐟", "🐬", "🐳", "🐋", "🦈",
+    "🐊", "🐅", "🐆", "🦓", "🦍", "🦧", "🐘", "🐪", "🦒", "🦘", "🐃", "🐂", "🐄", "🐎", "🐖", "🐏",
+    "🐑", "🦙", "🐐", "🦌", "🐕", "🐩", "🐈", "🐓", "🦃", "🦚", "🦜", "🦢", "🦩", "🕊️", "🐇", "🦔",
+    "🌵", "🌲", "🌳", "🌴", "🌱", "🌿", "☘️", "🍀", "🍃", "🍂", "🍁", "🌾", "💐", "🌷", "🌹", "🥀",
+    "🌺", "🌸", "🌼", "🌻", "🌞", "🌝", "🌛", "🌚", "🌕", "🌖", "🌗", "🌘", "🌑", "🌒", "🌓", "🌔",
+    "🌙", "🌎", "🌍", "🌏", "💫", "⭐", "🌟", "✨", "⚡", "☄️", "💥", "🔥", "🌪️", "🌈", "☀️", "🌤️",
+    "⛅", "🌥️", "☁️", "🌦️", "🌧️", "⛈️", "🌩️", "🌨️", "❄️", "☃️", "⛄", "🌬️", "💨", "💧", "💦", "☔",
+    "☂️", "🌊", "🌫️",
+    "🍏", "🍎", "🍐", "🍊", "🍋", "🍌", "🍉", "🍇", "🍓", "🫐", "🍈", "🍒", "🍑", "🥭", "🍍", "🥥",
+    "🥝", "🍅", "🥑", "🥦", "🥬", "🥒", "🌶️", "🌽", "🥕", "🥔", "🍠", "🥐", "🍞", "🥖", "🥨", "🥯",
+    "🧀", "🥚", "🍳", "🥞", "🧇", "🥓", "🥩", "🍗", "🍖", "🌭", "🍔", "🍟", "🍕", "🥪", "🥙", "🧆",
+    "🌮", "🌯", "🥗", "🥘", "🍝", "🍜", "🍲", "🍛", "🍣", "🍱", "🥟", "🦪", "🍤", "🍙", "🍚", "🍘",
+    "🍥", "🥠", "🍢", "🍡", "🍧", "🍨", "🍦", "🥧", "🧁", "🍰", "🎂", "🍮", "🍭", "🍬", "🍫", "🍿",
+    "🍩", "🍪", "🌰", "🥜", "🍯", "🥛", "🍼", "☕", "🍵", "🧃", "🥤", "🧋", "🍶", "🍺", "🍻", "🥂",
+    "🍷", "🥃", "🍸", "🍹", "🧉", "🍾", "🧊", "🥄", "🍴", "🥣", "🥡",
+    "⚽", "🏀", "🏈", "⚾", "🥎", "🎾", "🏐", "🏉", "🥏", "🎱", "🪀", "🏓", "🏸", "🏒", "🏑", "🥍",
+    "🏏", "🥅", "⛳", "🪁", "🏹", "🎣", "🤿", "🥊", "🥋", "🎽", "🛹", "🛼", "🛷", "🎿", "⛷️", "🏂",
+    "🪂", "🏋️", "🤼", "🤸", "⛹️", "🤺", "🤾", "🏌️", "🏇", "🧘", "🏄", "🏊", "🤽", "🚣", "🧗", "🚵",
+    "🚴", "🏆", "🥇", "🥈", "🥉", "🏅", "🎖️", "🏵️", "🎗️", "🎫", "🎟️", "🎪", "🤹", "🎭", "🩰", "🎨",
+    "🎬", "🎤", "🎧", "🎼", "🎹", "🥁", "🪘", "🎷", "🎺", "🪗", "🎸", "🪕", "🎻", "🎲", "♟️", "🎯",
+    "🎳", "🎮", "🎰", "🧩",
+    "🚗", "🚕", "🚙", "🚌", "🚎", "🏎️", "🚓", "🚑", "🚒", "🚐", "🛻", "🚚", "🚛", "🚜", "🦯", "🦽",
+    "🦼", "🛴", "🚲", "🛵", "🏍️", "🛺", "🚨", "🚔", "🚍", "🚘", "🚖", "🚡", "🚠", "🚟", "🚃", "🚋",
+    "🚞", "🚝", "🚄", "🚅", "🚈", "🚂", "🚆", "🚇", "🚊", "🚉", "✈️", "🛫", "🛬", "🛩️", "💺", "🛰️",
+    "🚀", "🛸", "🚁", "🛶", "⛵", "🚤", "🛥️", "🛳️", "⛴️", "🚢", "⚓", "🪝", "⛽", "🚧", "🚦", "🚥",
+    "🚏", "🗺️", "🗿", "🗽", "🗼", "🏰", "🏯", "🏟️", "🎡", "🎢", "🎠", "⛲", "⛱️", "🏖️", "🏝️", "🏜️",
+    "🌋", "⛰️", "🏔️", "🗻", "🏕️", "⛺", "🏠", "🏡", "🏘️", "🏚️", "🏗️", "🏭", "🏢", "🏬", "🏣", "🏤",
+    "🏥", "🏦", "🏨", "🏪", "🏫", "🏩", "💒", "🏛️", "⛪", "🕌", "🕍", "🛕", "🕋", "⛩️", "🛤️", "🛣️",
+    "🗾", "🎑", "🏞️", "🌅", "🌄", "🌠", "🎇", "🎆", "🌇", "🌆", "🏙️", "🌃", "🌌", "🌉", "🌁",
+    "🏳️", "🏴", "🏁", "🚩", "🏳️🌈", "🏳️⚧️",
+    "🇺🇸", "🇬🇧", "🇨🇦", "🇯🇵", "🇨🇳", "🇰🇷", "🇩🇪", "🇫🇷", "🇪🇸", "🇮🇹", "🇧🇷", "🇲🇽", "🇦🇺", "🇳🇿",
+    "🇮🇳", "🇷🇺", "🇸🇦", "🇿🇦", "🇳🇱", "🇸🇪", "🇳🇴", "🇩🇰", "🇫🇮", "🇵🇱", "🇺🇦", "🇹🇷", "🇬🇷", "🇮🇱",
+    "🇪🇬", "🇦🇷", "🇵🇹", "🇨🇭", "🇦🇹", "🇧🇪", "🇨🇿", "🇸🇬", "🇭🇰", "🇹🇼", "🇹🇭", "🇻🇳", "🇲🇾", "🇵🇭",
+    "🇮🇩",
+];
 
 const UPLOAD_ATTACHMENT_ADD_FILES = "UPLOAD_ATTACHMENT_ADD_FILES";
 
@@ -151,6 +244,23 @@ function Paintbrush({ height = 18, width = 18, className }: IconProps) {
         </svg>
     );
 }
+
+const SmileIcon: IconComponent = ({ height = 18, width = 18, className }) => (
+    <svg width={width} height={height} className={className} viewBox="0 0 24 24" {...strokeProps} aria-hidden="true">
+        <circle cx="12" cy="12" r="10" />
+        <path d="M8 14s1.5 2 4 2 4-2 4-2" />
+        <line x1="9" x2="9.01" y1="9" y2="9" />
+        <line x1="15" x2="15.01" y1="9" y2="9" />
+    </svg>
+);
+
+const ImageIcon: IconComponent = ({ height = 18, width = 18, className }) => (
+    <svg width={width} height={height} className={className} viewBox="0 0 24 24" {...strokeProps} aria-hidden="true">
+        <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+        <circle cx="9" cy="9" r="2" />
+        <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+    </svg>
+);
 
 function ToolButton({ label, active, onClick, icon: Icon }: {
     label: string;
@@ -352,6 +462,17 @@ function newTextItem(pos: Point, size: number, color: string, font: string, bold
     };
 }
 
+/** Loads an image element with CORS enabled so it can be drawn onto the export canvas */
+function loadImageElement(src: string): Promise<HTMLImageElement> {
+    return new Promise((resolve, reject) => {
+        const el = new Image();
+        el.crossOrigin = "anonymous";
+        el.onload = () => resolve(el);
+        el.onerror = () => reject(new Error(`Failed to load image: ${src}`));
+        el.src = src;
+    });
+}
+
 function ImageEditorModal({ rootProps, file, onSave, onCancel }: EditorProps) {
     const [img, setImg] = useState<HTMLImageElement | null>(null);
     const [loadError, setLoadError] = useState(false);
@@ -363,6 +484,8 @@ function ImageEditorModal({ rootProps, file, onSave, onCancel }: EditorProps) {
     const [strokes, setStrokes] = useState<Stroke[]>([]);
     const [texts, setTexts] = useState<TextItem[]>([]);
     const [selectedTextId, setSelectedTextId] = useState<string | null>(null);
+    const [stickers, setStickers] = useState<StickerItem[]>([]);
+    const [selectedStickerItemId, setSelectedStickerItemId] = useState<string | null>(null);
 
     const [selRect, setSelRect] = useState<Rect | null>(null);
     const [cropRatio, setCropRatio] = useState<CropRatio>("free");
@@ -373,6 +496,10 @@ function ImageEditorModal({ rootProps, file, onSave, onCancel }: EditorProps) {
     const [fontFamily, setFontFamily] = useState<string>(FONTS[0].value);
     const [bold, setBold] = useState(false);
     const [italic, setItalic] = useState(false);
+
+    const [stickerSize, setStickerSize] = useState(96);
+    const [selectedStickerSource, setSelectedStickerSource] = useState<string | null>("unicode-0");
+    const [uploadedStickers, setUploadedStickers] = useState<StickerSource[]>([]);
 
     const [history, setHistory] = useState<EditorSnapshot[]>([]);
     const [redoStack, setRedoStack] = useState<EditorSnapshot[]>([]);
@@ -387,6 +514,9 @@ function ImageEditorModal({ rootProps, file, onSave, onCancel }: EditorProps) {
     const cropDragRef = useRef<{ mode: "move" | "draw"; } | { mode: "resize"; handle: string; } | null>(null);
     const cropStartRef = useRef<{ rect: Rect; px: number; py: number; } | null>(null);
     const textDragRef = useRef<{ id: string; px: number; py: number; origX: number; origY: number; } | null>(null);
+    const stickerDragRef = useRef<{ id: string; px: number; py: number; origX: number; origY: number; } | null>(null);
+    const uploadInputRef = useRef<HTMLInputElement>(null);
+    const uploadUrlsRef = useRef<string[]>([]);
 
     // Load the image
     useEffect(() => {
@@ -422,6 +552,34 @@ function ImageEditorModal({ rootProps, file, onSave, onCancel }: EditorProps) {
         if (!img || tool !== "crop") return;
         setSelRect(prev => prev ?? crop ?? null);
     }, [tool, img, crop]);
+
+    // Revoke object URLs of uploaded stickers when the modal unmounts
+    useEffect(() => () => {
+        for (const url of uploadUrlsRef.current) URL.revokeObjectURL(url);
+        uploadUrlsRef.current = [];
+    }, []);
+
+    // Emoji & image sources the user can place on the photo
+    const stickerSources = useMemo<StickerSource[]>(() => {
+        const unicode: StickerSource[] = COMMON_EMOJIS.map((emoji, i) => ({
+            id: `unicode-${i}`,
+            name: emoji,
+            src: twemojiUrl(emoji),
+            aspect: 1,
+        }));
+
+        const custom: StickerSource[] = EmojiStore.getUsableGuildEmoji(null)
+            .filter(e => !!e.id && e.available !== false)
+            .map(e => ({
+                id: `custom-${e.id}`,
+                name: `:${e.name}:`,
+                src: IconUtils.getEmojiURL({ id: e.id, animated: e.animated, size: 128 }),
+                aspect: 1,
+                animated: e.animated,
+            }));
+
+        return [...uploadedStickers, ...unicode, ...custom];
+    }, [uploadedStickers]);
 
     const imgW = img?.naturalWidth ?? 1;
     const imgH = img?.naturalHeight ?? 1;
@@ -481,7 +639,7 @@ function ImageEditorModal({ rootProps, file, onSave, onCancel }: EditorProps) {
 
     function pushHistory(): void {
         setHistory(h => {
-            const next = [...h, { crop, strokes, texts }];
+            const next = [...h, { crop, strokes, texts, stickers }];
             return next.length > MAX_HISTORY ? next.slice(next.length - MAX_HISTORY) : next;
         });
         setRedoStack([]);
@@ -491,22 +649,26 @@ function ImageEditorModal({ rootProps, file, onSave, onCancel }: EditorProps) {
         const prev = history[history.length - 1];
         if (!prev) return;
         setHistory(h => h.slice(0, -1));
-        setRedoStack(r => [...r, { crop, strokes, texts }]);
+        setRedoStack(r => [...r, { crop, strokes, texts, stickers }]);
         setCrop(prev.crop);
         setStrokes(prev.strokes);
         setTexts(prev.texts);
         setSelectedTextId(null);
+        setStickers(prev.stickers);
+        setSelectedStickerItemId(null);
     }
 
     function redo(): void {
         const next = redoStack[redoStack.length - 1];
         if (!next) return;
         setRedoStack(r => r.slice(0, -1));
-        setHistory(h => [...h, { crop, strokes, texts }]);
+        setHistory(h => [...h, { crop, strokes, texts, stickers }]);
         setCrop(next.crop);
         setStrokes(next.strokes);
         setTexts(next.texts);
         setSelectedTextId(null);
+        setStickers(next.stickers);
+        setSelectedStickerItemId(null);
     }
 
     function reset(): void {
@@ -515,6 +677,8 @@ function ImageEditorModal({ rootProps, file, onSave, onCancel }: EditorProps) {
         setStrokes([]);
         setTexts([]);
         setSelectedTextId(null);
+        setStickers([]);
+        setSelectedStickerItemId(null);
         setSelRect(null);
     }
 
@@ -535,6 +699,19 @@ function ImageEditorModal({ rootProps, file, onSave, onCancel }: EditorProps) {
             drawingRef.current = true;
             pushHistory();
             setStrokes(prev => [...prev, { color, size: brushSize, points: [pos] }]);
+        } else if (tool === "sticker") {
+            const source = stickerSources.find(s => s.id === selectedStickerSource);
+            if (!source) return;
+            pushHistory();
+            setStickers(prev => [...prev, {
+                id: Math.random().toString(36).slice(2),
+                src: source.src,
+                name: source.name,
+                x: clamp(pos.x, 0, imgW),
+                y: clamp(pos.y, 0, imgH),
+                w: stickerSize,
+                h: stickerSize / source.aspect,
+            }]);
         } else if (tool === "text") {
             pushHistory();
             const item = newTextItem(pos, textSize, color, fontFamily, bold, italic);
@@ -802,60 +979,137 @@ function ImageEditorModal({ rootProps, file, onSave, onCancel }: EditorProps) {
         setSelectedTextId(null);
     }
 
+    // --- Sticker tool ---
+
+    function onStickerPointerDown(e: ReactPointerEvent, item: StickerItem) {
+        if (tool !== "sticker") return;
+        e.stopPropagation();
+        (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
+        setSelectedStickerItemId(item.id);
+        pushHistory();
+        const pos = stagePos(e);
+        stickerDragRef.current = { id: item.id, px: pos.x, py: pos.y, origX: item.x, origY: item.y };
+    }
+
+    function onStickerPointerMove(e: ReactPointerEvent) {
+        const drag = stickerDragRef.current;
+        if (!drag) return;
+        const pos = stagePos(e);
+        setStickers(prev => prev.map(s => s.id === drag.id
+            ? { ...s, x: clamp(drag.origX + (pos.x - drag.px), 0, imgW), y: clamp(drag.origY + (pos.y - drag.py), 0, imgH) }
+            : s
+        ));
+    }
+
+    function onStickerPointerUp() {
+        stickerDragRef.current = null;
+    }
+
+    function updateSelectedStickerSize(size: number) {
+        setStickerSize(size);
+        const target = stickers.find(s => s.id === selectedStickerItemId);
+        if (!target) return;
+        const aspect = target.w / target.h;
+        setStickers(prev => prev.map(s => s.id === selectedStickerItemId
+            ? { ...s, w: size, h: size / aspect }
+            : s
+        ));
+    }
+
+    function deleteSelectedSticker() {
+        if (!selectedStickerItemId) return;
+        pushHistory();
+        setStickers(prev => prev.filter(s => s.id !== selectedStickerItemId));
+        setSelectedStickerItemId(null);
+    }
+
+    function handleStickerUpload(file: File | null) {
+        if (!file || !file.type.startsWith("image/")) return;
+        const url = URL.createObjectURL(file);
+        uploadUrlsRef.current.push(url);
+        const probe = new Image();
+        probe.onload = () => {
+            const source: StickerSource = {
+                id: `upload-${Math.random().toString(36).slice(2)}`,
+                name: file.name,
+                src: url,
+                aspect: probe.naturalWidth / Math.max(1, probe.naturalHeight),
+            };
+            setUploadedStickers(prev => [...prev, source]);
+            setSelectedStickerSource(source.id);
+        };
+        probe.onerror = () => URL.revokeObjectURL(url);
+        probe.src = url;
+    }
+
     // --- Export ---
 
-    function exportFile(): Promise<File> {
-        return new Promise((resolve, reject) => {
-            if (!img) return reject(new Error("Image not loaded"));
+    async function exportFile(): Promise<File> {
+        if (!img) throw new Error("Image not loaded");
 
-            const outW = crop ? Math.round(crop.w) : img.naturalWidth;
-            const outH = crop ? Math.round(crop.h) : img.naturalHeight;
-            const canvas = document.createElement("canvas");
-            canvas.width = outW;
-            canvas.height = outH;
-            const ctx = canvas.getContext("2d");
-            if (!ctx) return reject(new Error("Failed to create canvas"));
+        const outW = crop ? Math.round(crop.w) : img.naturalWidth;
+        const outH = crop ? Math.round(crop.h) : img.naturalHeight;
+        const canvas = document.createElement("canvas");
+        canvas.width = outW;
+        canvas.height = outH;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) throw new Error("Failed to create canvas");
 
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = "high";
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = "high";
 
-            if (crop) {
-                ctx.drawImage(img, crop.x, crop.y, crop.w, crop.h, 0, 0, outW, outH);
-            } else {
-                ctx.drawImage(img, 0, 0, outW, outH);
+        if (crop) {
+            ctx.drawImage(img, crop.x, crop.y, crop.w, crop.h, 0, 0, outW, outH);
+        } else {
+            ctx.drawImage(img, 0, 0, outW, outH);
+        }
+
+        const cropX = crop?.x ?? 0;
+        const cropY = crop?.y ?? 0;
+
+        for (const stroke of strokes) {
+            if (stroke.points.length === 0) continue;
+            ctx.beginPath();
+            ctx.strokeStyle = stroke.color;
+            ctx.lineWidth = Math.max(1, stroke.size);
+            ctx.lineCap = "round";
+            ctx.lineJoin = "round";
+            ctx.moveTo(stroke.points[0].x - cropX, stroke.points[0].y - cropY);
+            for (let i = 1; i < stroke.points.length; i++) {
+                ctx.lineTo(stroke.points[i].x - cropX, stroke.points[i].y - cropY);
             }
+            ctx.stroke();
+        }
 
-            const cropX = crop?.x ?? 0;
-            const cropY = crop?.y ?? 0;
+        for (const t of texts) {
+            ctx.font = `${t.italic ? "italic " : ""}${t.bold ? "700 " : ""}${t.size}px ${t.font}`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillStyle = t.color;
+            ctx.fillText(t.text, t.x - cropX, t.y - cropY);
+        }
 
-            for (const stroke of strokes) {
-                if (stroke.points.length === 0) continue;
-                ctx.beginPath();
-                ctx.strokeStyle = stroke.color;
-                ctx.lineWidth = Math.max(1, stroke.size);
-                ctx.lineCap = "round";
-                ctx.lineJoin = "round";
-                ctx.moveTo(stroke.points[0].x - cropX, stroke.points[0].y - cropY);
-                for (let i = 1; i < stroke.points.length; i++) {
-                    ctx.lineTo(stroke.points[i].x - cropX, stroke.points[i].y - cropY);
-                }
-                ctx.stroke();
+        // Load every sticker image first so they can be composited onto the canvas.
+        // Stickers whose image can't be loaded are skipped rather than failing the export.
+        const loaded = await Promise.all(stickers.map(async item => {
+            try {
+                return { item, el: await loadImageElement(item.src) };
+            } catch (err) {
+                console.warn("[ImageEditor] Failed to load sticker image", item.name, err);
+                return null;
             }
+        }));
 
-            for (const t of texts) {
-                ctx.font = `${t.italic ? "italic " : ""}${t.bold ? "700 " : ""}${t.size}px ${t.font}`;
-                ctx.textAlign = "center";
-                ctx.textBaseline = "middle";
-                ctx.fillStyle = t.color;
-                ctx.fillText(t.text, t.x - cropX, t.y - cropY);
-            }
+        for (const entry of loaded) {
+            if (!entry) continue;
+            const { item, el } = entry;
+            ctx.drawImage(el, item.x - cropX - item.w / 2, item.y - cropY - item.h / 2, item.w, item.h);
+        }
 
-            canvas.toBlob(blob => {
-                if (!blob) return reject(new Error("Failed to export image"));
-                const base = file.name.replace(/\.[^/.]+$/, "") || "image";
-                resolve(new File([blob], `${base}_edited.png`, { type: "image/png" }));
-            }, "image/png");
-        });
+        const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, "image/png"));
+        if (!blob) throw new Error("Failed to export image");
+        const base = file.name.replace(/\.[^/.]+$/, "") || "image";
+        return new File([blob], `${base}_edited.png`, { type: "image/png" });
     }
 
     async function handleSave() {
@@ -890,7 +1144,7 @@ function ImageEditorModal({ rootProps, file, onSave, onCancel }: EditorProps) {
             {...rootProps}
             title={"Edit Image"}
             subtitle={file.name}
-            size="lg"
+            size="xl"
             onClose={handleCancel}
             actions={[
                 { text: "Cancel", variant: "secondary", onClick: handleCancel },
@@ -903,6 +1157,7 @@ function ImageEditorModal({ rootProps, file, onSave, onCancel }: EditorProps) {
                         <ToolButton label="Crop" active={tool === "crop"} onClick={() => setTool("crop")} icon={CropIcon} />
                         <ToolButton label="Text" active={tool === "text"} onClick={() => setTool("text")} icon={TypeIcon} />
                         <ToolButton label="Scribble" active={tool === "scribble"} onClick={() => setTool("scribble")} icon={Paintbrush} />
+                        <ToolButton label="Sticker" active={tool === "sticker"} onClick={() => setTool("sticker")} icon={SmileIcon} />
                     </div>
                     <div className={cl("tool-group")}>
                         <Button size="small" variant="secondary" onClick={undo} disabled={history.length === 0} title="Undo" className={cl("icon-btn")}>
@@ -968,6 +1223,30 @@ function ImageEditorModal({ rootProps, file, onSave, onCancel }: EditorProps) {
                                 </div>
                             )}
 
+                            {stickers.length > 0 && (
+                                <div className={cl("sticker-layer")}>
+                                    {stickers.map(item => (
+                                        <img
+                                            key={item.id}
+                                            src={item.src}
+                                            alt={item.name}
+                                            draggable={false}
+                                            className={cl("sticker-item", { draggable: tool === "sticker", selected: item.id === selectedStickerItemId && tool === "sticker" })}
+                                            style={{
+                                                left: (item.x - view.x) * scale,
+                                                top: (item.y - view.y) * scale,
+                                                width: item.w * scale,
+                                                height: item.h * scale,
+                                            }}
+                                            onPointerDown={e => onStickerPointerDown(e, item)}
+                                            onPointerMove={onStickerPointerMove}
+                                            onPointerUp={onStickerPointerUp}
+                                            onPointerCancel={onStickerPointerUp}
+                                        />
+                                    ))}
+                                </div>
+                            )}
+
                             {tool === "crop" && selRect && (
                                 <div
                                     className={cl("crop-layer")}
@@ -994,6 +1273,24 @@ function ImageEditorModal({ rootProps, file, onSave, onCancel }: EditorProps) {
                         </div>
                     )}
                 </div>
+
+                {tool === "sticker" && stickerSources.length > 0 && (
+                    <div className={cl("sticker-picker")}>
+                        <div className={cl("sticker-picker-scroll")}>
+                            {stickerSources.map(source => (
+                                <button
+                                    type="button"
+                                    key={source.id}
+                                    className={cl("sticker-cell", selectedStickerSource === source.id && "sticker-selected")}
+                                    title={source.name}
+                                    onClick={() => setSelectedStickerSource(source.id)}
+                                >
+                                    <img src={source.src} alt={source.name} loading="lazy" />
+                                </button>
+                            ))}
+                        </div>
+                    </div>
+                )}
 
                 <div className={cl("controls")}>
                     {tool === "crop" && (
@@ -1125,6 +1422,56 @@ function ImageEditorModal({ rootProps, file, onSave, onCancel }: EditorProps) {
                                 : <span className={cl("hint")}>Click the image to add text, then click a text to edit it</span>}
                         </>
                     )}
+
+                    {tool === "sticker" && (
+                        <>
+                            <label className={cl("control")}>
+                                <span className={cl("control-label")}>Size</span>
+                                <input
+                                    type="range"
+                                    className={cl("range")}
+                                    min={16}
+                                    max={400}
+                                    value={stickerSize}
+                                    onChange={e => updateSelectedStickerSize(Number(e.target.value))}
+                                />
+                                <span className={cl("control-value")}>{stickerSize}</span>
+                            </label>
+                            <input
+                                ref={uploadInputRef}
+                                type="file"
+                                accept="image/*"
+                                hidden
+                                onChange={e => {
+                                    handleStickerUpload(e.target.files?.[0] ?? null);
+                                    e.target.value = "";
+                                }}
+                            />
+                            <Button
+                                size="small"
+                                variant="secondary"
+                                onClick={() => uploadInputRef.current?.click()}
+                                title="Upload an image to place on the photo"
+                            >
+                                <ImageIcon height={16} width={16} /> Upload image
+                            </Button>
+                            <Button
+                                size="small"
+                                variant="dangerSecondary"
+                                className={cl("icon-btn")}
+                                onClick={deleteSelectedSticker}
+                                disabled={!selectedStickerItemId}
+                                title="Delete selected sticker"
+                            >
+                                <DeleteIcon height={16} width={16} />
+                            </Button>
+                            <span className={cl("hint")}>
+                                {selectedStickerSource
+                                    ? "Click the photo to place the selected sticker, then drag it to move it"
+                                    : "Pick an emoji or upload an image above, then click the photo to place it"}
+                            </span>
+                        </>
+                    )}
                 </div>
             </div>
         </Modal>
@@ -1137,7 +1484,7 @@ function ImageEditorModal({ rootProps, file, onSave, onCancel }: EditorProps) {
 
 export default definePlugin({
     name: "ImageEditor",
-    description: "Edit images before sending them in a message: crop, add text, and scribble on them",
+    description: "Edit images before sending them in a message: crop, add text, scribble on them, and drop emojis or other images on top",
     tags: ["Media", "Chat"],
     authors: [Devs.saraaa7447],
     settings,
